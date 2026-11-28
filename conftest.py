@@ -257,15 +257,17 @@ sys.path.insert(1, git_repo_path)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
-def pytest_configure(config):
-    # Shared directory for the read-only cache fallback events. The controller creates it and
-    # exports the path; xdist workers (spawned later) inherit the env var and write into the
-    # same directory, so `pytest_terminal_summary` on the controller can aggregate all of them.
+def install_ci_cache_fallback():
+    """Install the read-only cache fallback (`_with_tmpdir_cache_fallback`) in the current process.
+
+    Called by `pytest_configure`, and by every process a test starts that does not run this conftest, e.g. the
+    ranks of `run_distributed` (`tests/distributed_testing_utils.py`): without it, their downloads of a repo missing
+    from the read-only shared cache fail with EROFS.
+    """
+    # processes started by a test inherit the events directory exported by `pytest_configure`
     global _ci_fallback_events_dir
-    _ci_fallback_events_dir = os.environ.get("CI_FALLBACK_EVENTS_DIR")
     if _ci_fallback_events_dir is None:
-        _ci_fallback_events_dir = tempfile.mkdtemp(prefix="ci_fallback_events_")
-        os.environ["CI_FALLBACK_EVENTS_DIR"] = _ci_fallback_events_dir
+        _ci_fallback_events_dir = os.environ.get("CI_FALLBACK_EVENTS_DIR")
 
     import transformers.utils.hub as _hub
 
@@ -327,6 +329,19 @@ def pytest_configure(config):
             _wrapped_snapshot_download = _with_tmpdir_cache_fallback(_original_snapshot_download)
             _wrapped_snapshot_download._ci_fallback_wrapped = True
             _snapshot_download_mod.snapshot_download = _wrapped_snapshot_download
+
+
+def pytest_configure(config):
+    # Shared directory for the read-only cache fallback events. The controller creates it and
+    # exports the path; xdist workers (spawned later) inherit the env var and write into the
+    # same directory, so `pytest_terminal_summary` on the controller can aggregate all of them.
+    global _ci_fallback_events_dir
+    _ci_fallback_events_dir = os.environ.get("CI_FALLBACK_EVENTS_DIR")
+    if _ci_fallback_events_dir is None:
+        _ci_fallback_events_dir = tempfile.mkdtemp(prefix="ci_fallback_events_")
+        os.environ["CI_FALLBACK_EVENTS_DIR"] = _ci_fallback_events_dir
+
+    install_ci_cache_fallback()
 
     config.addinivalue_line("markers", "slow: mark test as slow")
     config.addinivalue_line("markers", "is_pipeline_test: mark test to run only when pipelines are tested")

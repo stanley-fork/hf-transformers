@@ -86,6 +86,14 @@ def _worker_main(rank, world_size, master_port, backend, pipe):
     # pytest captures our output under the test running when it is written, and a worker may be killed (after
     # another one failed) before it flushes a block-buffered stdout
     sys.stdout.reconfigure(line_buffering=True)
+    # a spawned worker does not run the repo-root conftest: install its read-only HF cache fallback here too, or
+    # loading a repo missing from the CI's read-only shared cache fails with EROFS
+    try:
+        import conftest
+    except ImportError:  # not run by pytest from this repository
+        pass
+    else:
+        conftest.install_ci_cache_fallback()
     os.environ.update(WORLD_SIZE=str(world_size), RANK=str(rank), LOCAL_RANK=str(rank))
     # some backends, e.g. tpu, require the rank to be set before initializing the process group
     _set_rank_device(rank, backend)
